@@ -1,6 +1,6 @@
 <?php
 /*
-Plugin Name: WSR Profile Image uplaoder
+Plugin Name: WSR Profile Image upload
 Plugin URI: http://websector.com.au
 Description: Upload an image from the front end
 Version: 1.0.0
@@ -17,6 +17,9 @@ if ( !class_exists( 'WSR_Profile_Image_Uploader' ) ) {
 	class WSR_Profile_Image_Uploader{
 
 			static $instance = false;
+
+			private $image_input_name = 'wsr_profile_upload';
+			private $acfFieldName = 'saclub_profile_pic';
 
 			private function __construct(){
 				add_action('woocommerce_edit_account_form_tag', array($this, 'wsr_edit_account_form_tag'));
@@ -41,15 +44,15 @@ if ( !class_exists( 'WSR_Profile_Image_Uploader' ) ) {
 					<span class="woocommerce-input-wrapper">
 						<?php
 							//output image here - get meta
-							$image = get_field('saclub_profile_pic');
+							$image = get_field($this->acfFieldName, 'user_' . get_current_user_id());
 							$size = 'thumbnail'; // (thumbnail, medium, large, full or custom size)
 							if( $image ) {
 								echo wp_get_attachment_image( $image, $size );
 							}
 						?>
-						<input id="wsr_profile_upload" name="wsr_profile_upload" type="file" class="button" style="position: relative; z-index: 1;" multiple="false" >
-						<?php wp_nonce_field( 'wsr_profile_upload', 'wsr_profile_upload_nonce' ); ?>
-						<input type="hidden" name="profile_user_id" id="profile_user_id" value="<?php echo get_current_user_id() ?>" />
+						<input id="<?php echo $this->image_input_name ?>" name="<?php echo $this->image_input_name ?>" type="file" class="button" style="position: relative; z-index: 1;" multiple="false" >
+						<p>Image must be .jpg or .png & no bigger than 1000 pixels</p>
+						<?php wp_nonce_field( $this->image_input_name, $this->image_input_name . '_nonce' ); ?>
 						<br />
 
 					</span>
@@ -60,36 +63,50 @@ if ( !class_exists( 'WSR_Profile_Image_Uploader' ) ) {
 			function wsr_upload_user_profile_image($user_id) {
 				// Check that the nonce is valid, and the user can edit this post.
 				if ( 
-					isset( $_POST['wsr_profile_upload_nonce'], $_POST['profile_user_id'] ) 
-					&& wp_verify_nonce( $_POST['wsr_profile_upload_nonce'], 'wsr_profile_upload' )
+					isset( $_POST[$this->image_input_name . '_nonce']) && wp_verify_nonce( $_POST[$this->image_input_name . '_nonce'], 'wsr_profile_upload' )
 				) {
 					// The nonce was valid and the user has the capabilities, it is safe to continue.
 				
-					// These files need to be included as dependencies when on the front end.
-					require_once( ABSPATH . 'wp-admin/includes/image.php' );
-					require_once( ABSPATH . 'wp-admin/includes/file.php' );
-					require_once( ABSPATH . 'wp-admin/includes/media.php' );
-					
-					// Let WordPress handle the upload.
-					// Remember, 'wsr_profile_upload' is the name of our file input in our form above.
-					$attachment_id = media_handle_upload( 'wsr_profile_upload', 0 );
-					
-					if ( is_wp_error( $attachment_id ) ) {
-						// There was an error uploading the image.
-						wc_add_notice( 'Image not saved.  Please try again or contact the admin.', 'error' );
+					$allowed_image_types = array('image/jpeg','image/png');
+					// Maximum size in bytes
+					$max_image_size = 1000 * 1000; // 1 MB (approx)
 
-					} else {
-						//process image? Add image resize plugin, eg Imsanity to ensure no larger than .....
+					// Check if there's an image
+					if (isset($_FILES[$this->image_input_name]['size']) && $_FILES[$this->image_input_name]['size'] > 0){
+						// Check conditions
+						if(in_array($_FILES[$this->image_input_name]['type'], $allowed_image_types) && $_FILES[$this->image_input_name]['size'] <= $max_image_size){
+					
+							// These files need to be included as dependencies when on the front end.
+							require_once( ABSPATH . 'wp-admin/includes/image.php' );
+							require_once( ABSPATH . 'wp-admin/includes/file.php' );
+							require_once( ABSPATH . 'wp-admin/includes/media.php' );
+							
+							// Let WordPress handle the upload.
+							// Remember, 'wsr_profile_upload' is the name of our file input in our form above.
+							$attachment_id = media_handle_upload( 'wsr_profile_upload', 0 );
+							
+							if ( is_wp_error( $attachment_id ) ) {
+								// There was an error uploading the image.
+								wc_add_notice( 'Image not saved.  Please try again or contact the admin.', 'error' );
 
-						// Save attachment id to user meta
-						if ($attachment_id > 0){
-							update_field('saclub_profile_pic', $attachment_id, 'user_' . $customer_id );
+							} else {
+								//Delete users current image form media library so it doesnt get cluttered
+								$currentAttachmentID = get_field($this->acfFieldName, 'user_' . $user_id);
+								wp_delete_attachment( $currentAttachmentID);
+
+								// Save attachment id to user meta
+								if ($attachment_id > 0){
+									update_field($this->acfFieldName, $attachment_id, 'user_' . $user_id );
+								}
+							}
+						}else{
+							wc_add_notice( 'Profile image not saved.  Image must be .jpg or .png & under 1000px by 1000px .  Please try again.', 'error' );
 						}
 					}
 				
 				} else {
 					// The security check failed, maybe show the user an error.
-					wc_add_notice( 'Security check failed.  Please try again.', 'error' );
+					wc_add_notice( 'Security check failed. Not all profile fields save.  Please try again.', 'error' );
 				}
 			}
 	}
